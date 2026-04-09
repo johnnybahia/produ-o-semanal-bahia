@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+
+  <title>Painel de Pedidos Marfim Bahia</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <meta name="theme-color" content="#3b82f6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  
+  <meta name="apple-mobile-web-app-title" content="Painel Marfim"> 
+  <link rel="apple-touch-icon" href="https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg">
+  
+  <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiUGFpbmVsIGRlIFBlZGlkb3MgTWFyZmltIEJhaGlhIiwic2hvcnRfbmFtZSI6IlBhaW5lbCBNYXJmaW0iLCJzdGFydF91cmwiOiIuIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiI2YzZjRjYiIsInRoZW1lX2NvbG9yIjoiIzNiODJmNiIsImljb25zIjpbeyJzcmMiOiJodHRwczovL2kuaWJiLmNvL0ZHR2pkc00vTE9HTy1NQVJGSU0uanBnIiwic2l6ZXMiOiIxOTJ4MTkyIiwidHlwZSI6ImltYWdlL2pwZWcifV19">
+
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+    
+    /* Cores dos Cards */
+    .card-bg-green { background-color: #f0fdf4; border-color: #bbf7d0; }
+    .card-bg-yellow { background-color: #fefce8; border-color: #fde047; }
+    .card-bg-rose { background-color: #fff1f2; border-color: #fecdd3; }
+    .card-bg-white { background-color: #ffffff; border-color: #e5e7eb; }
+
+    /* Filtros Maiores */
+    .filter-input {
+      width: 100%; 
+      border-radius: 0.5rem; 
+      border: 1px solid #d1d5db; 
+      padding: 0.75rem 1rem;
+      font-size: 1rem;
+      background-color: #fff;
+      transition: all 0.2s ease;
+      box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    }
+    .filter-input:focus {
+      outline: none; 
+      box-shadow: 0 0 0 2px #3b82f6; 
+      border-color: #3b82f6;
+    }
+    
+    /* Ajuste para o input de data não ficar com padding duplo */
+    input[type="date"].filter-input {
+      padding: calc(0.75rem - 1px) 1rem;
+    }
+
+    /* Loading Overlay */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      background-color: rgba(255, 255, 255, 0.9);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+      transition: opacity 0.3s ease;
+    }
+    #loading-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #f3f4f6;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Botão Instalar App */
+    #installButton {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 100;
+      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    }
+
+    /* Botão Atualizar */
+    #refreshButton {
+      transition: transform 0.3s ease;
+    }
+    #refreshButton:active {
+      transform: rotate(360deg);
+    }
+  </style>
+</head>
+
+<body class="bg-gray-100 p-3 sm:p-4 lg:p-6">
+
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <div id="loading-text" class="mt-4 text-base font-medium text-gray-700">
+      Carregando dados...
+    </div>
+  </div>
+
+  <button id="installButton" class="hidden bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-5 rounded-lg shadow-lg flex items-center gap-2">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+      <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
+    </svg>
+    Instalar App
+  </button>
+
+  <div class="max-w-7xl mx-auto bg-white rounded-xl shadow-lg p-4 sm:p-6">
+    
+    <header class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 pb-4 border-b border-gray-200">
+      <div class="flex items-center">
+        <img src="https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg" alt="Logo Marfim" class="h-10 w-auto mr-4 rounded-sm">
+        <div>
+          <h1 class="text-xl sm:text-2xl font-bold text-gray-800">Painel de pedidos Marfim Bahia</h1>
+          <div id="metaLine" class="text-xs text-gray-500"></div>
+        </div>
+      </div>
+      
+      <div class="mt-2 sm:mt-0 sm:text-right">
+        
+        <div id="accessCounter" class="text-xs text-gray-500 font-medium mb-1"></div>
+        
+        <div class="flex items-center gap-2 justify-end">
+          <div id="updatedAt" class="text-sm font-medium text-gray-700">Carregando data...</div>
+          <button id="refreshButton" title="Atualizar dados" class="p-2 hover:bg-gray-100 rounded-full transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-600" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+            </svg>
+          </button>
+        </div>
+        <div id="requestTimestamp" class="text-xs text-gray-500 mt-1"></div>
+        <div class="text-red-600 font-bold text-xs sm:text-sm mt-1">
+          ATENÇÃO A DATA E HORÁRIO DESTE RELATÓRIO
+        </div>
+      </div>
+    </header>
+
+    <div class="mb-4">
+      <div class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <input id="searchCliente" type="search" inputmode="search" placeholder="Cliente..." class="filter-input" />
+        <input id="searchOC" type="search" inputmode="search" placeholder="Ordem de Compra (OC)..." class="filter-input" />
+        <input id="searchDescricao" type="search" inputmode="search" placeholder="Descrição..." class="filter-input" />
+        <input id="searchGeral" type="search" inputmode="search" placeholder="Cartela / Tamanho..." class="filter-input" />
+        
+        <div>
+          <label for="searchDataProg" class="block text-xs font-medium text-gray-500 mb-1">Dt. Programada:</label>
+          <input id="searchDataProg" type="date" class="filter-input" />
+        </div>
+
+      </div>
+    </div>
+
+
+    <div class="mb-4 p-3 bg-gray-50 rounded-lg border">
+      <div id="aggregates" class="text-sm font-medium text-gray-700 grid grid-cols-2 gap-x-2 gap-y-1">
+        </div>
+      <div id="stats" class="mt-2 text-sm font-semibold text-blue-800">
+        </div>
+    </div>
+
+    <main id="list" class="space-y-3"></main>
+
+    <div id="controls" class="text-center mt-5">
+      <button id="btnMore" class="hidden inline-flex items-center gap-2 rounded-lg border border-gray-300 px-5 py-2 text-sm font-medium hover:border-gray-400 hover:bg-gray-50">
+        Carregar mais resultados
+      </button>
+      <div id="noResults" class="hidden text-gray-500 py-8">Nenhum resultado encontrado para os filtros aplicados.</div>
+    </div>
+    
+  </div>
+
+  <script>
+    // ==== ESTADO GLOBAL ====
+    let ALL_ITEMS = []; 
+    let FILTERED_ITEMS = [];
+    let currentOffset = 0;
+    const PAGE_LIMIT = 40;
+    let appMeta = {};
+    let deferredPrompt = null;
+
+    const state = { 
+       searchCliente: '', 
+       searchOC: '', 
+       searchDescricao: '', 
+       searchGeral: '',
+       searchDataProg: ''
+    };
+
+    // ==== ELEMENTOS DO DOM ====
+    const $list = document.getElementById('list');
+    const $searchCliente = document.getElementById('searchCliente');
+    const $searchOC = document.getElementById('searchOC');
+    const $searchDescricao = document.getElementById('searchDescricao');
+    const $searchGeral = document.getElementById('searchGeral');
+    const $btnMore = document.getElementById('btnMore');
+    const $noResults = document.getElementById('noResults');
+    const $stats = document.getElementById('stats');
+    const $aggregates = document.getElementById('aggregates');
+    const $loadingOverlay = document.getElementById('loading-overlay');
+    const $loadingText = document.getElementById('loading-text');
+    const $updatedAt = document.getElementById('updatedAt');
+    const $requestTimestamp = document.getElementById('requestTimestamp');
+    const $metaLine = document.getElementById('metaLine');
+    const $refreshButton = document.getElementById('refreshButton');
+    const $installButton = document.getElementById('installButton');
+    const $searchDataProg = document.getElementById('searchDataProg');
+    const $accessCounter = document.getElementById('accessCounter');
+
+
+    // ==== FUNÇÕES HELPERS ====
+    const debounce = (fn, ms=300) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; };
+    const fmtInt = n => (Number(n)||0).toLocaleString('pt-BR');
+    const fmtDecimal = n => (Number(n)||0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    
+    function _normSearch_(s) {
+      return String(s || '')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/\u00A0/g, ' ')
+        .replace(/[^\w\s-]/g, ' ')
+        .replace(/_/g, ' ')
+        .toLowerCase().replace(/\s+/g, ' ')
+        .trim();
+    }
+    function show(el, on) { el.classList.toggle('hidden', !on); }
+
+    // ==== LÓGICA DE RENDERIZAÇÃO ====
+    function dataPair(label, value, icon = '', extraClass = '') {
+      const v = (value || '-').trim();
+      return `
+        <div class="flex-1 ${extraClass}">
+          <div class="text-xs text-gray-500 uppercase font-medium tracking-wide">${label}</div>
+          <div class="text-base font-semibold text-gray-900 break-words">
+            ${icon} ${v}
+          </div>
+        </div>`;
+    }
+
+    function cardBgClass(prazo_num) {
+      if (typeof prazo_num !== 'number') return 'card-bg-white';
+      if (prazo_num > 0) return 'card-bg-green';
+      if (prazo_num === 0) return 'card-bg-yellow';
+      if (prazo_num < 0) return 'card-bg-rose';
+      return 'card-bg-white';
+    }
+
+    function itemCard(it) {
+      const bg = cardBgClass(it.prazo_num);
+      return `
+        <section class="card ${bg} p-3 rounded-lg border shadow-sm">
+          <div class="flex flex-col sm:flex-row justify-between sm:items-start gap-1 mb-2 pb-2 border-b border-gray-300/60">
+            <div class="flex-1">
+              <div class="text-xs text-gray-500 uppercase font-medium">Cliente</div>
+              <div class="text-lg font-bold text-blue-800 break-words">${it.cliente || '-'}</div>
+            </div>
+            <div class="flex-shrink-0 sm:text-right">
+              <div class="text-xs text-gray-500 uppercase font-medium">OC</div>
+              <div class="text-base font-semibold font-mono text-gray-900">${it.ord_compra || '-'}</div>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-2">
+            ${dataPair('Descrição', it.descricao, '', 'sm:col-span-2')}
+            ${dataPair('Prazo', it.prazo, '⏳')}
+            ${dataPair('Tamanho', it.tamanho, '📏')}
+            ${dataPair('Qtd. Aberta', fmtInt(it.qtd_aberta), '📦')}
+            ${dataPair('Cartela', it.cartela, '🎫')}
+            ${dataPair('Data Receb.', it.data_receb_br, '📥')}
+            ${dataPair('Dt. Programada', it.dt_entrega_br, '📅')} 
+            ${dataPair('Data Sistema', it.data_sistema_br, '🕘')}
+          </div>
+        </section>
+      `;
+    }
+
+    function resetList() {
+      $list.innerHTML = '';
+      currentOffset = 0;
+    }
+
+    function renderPage() {
+      const chunk = FILTERED_ITEMS.slice(currentOffset, currentOffset + PAGE_LIMIT);
+      if (chunk.length > 0) {
+        $list.insertAdjacentHTML('beforeend', chunk.map(itemCard).join(''));
+        currentOffset += chunk.length;
+      }
+      const hasMore = currentOffset < FILTERED_ITEMS.length;
+      show($btnMore, hasMore);
+      updateStats();
+    }
+
+    function updateStats() {
+      const total = FILTERED_ITEMS.length;
+      const pag = currentOffset;
+      $stats.textContent = total > 0 
+        ? `Exibindo: ${fmtInt(pag)} / ${fmtInt(total)}` 
+        : '';
+      show($noResults, total === 0);
+    }
+
+    function updateAggregates(itemsToSum) {
+      let totalMetros = 0;
+      let totalPares = 0;
+      const tamMM = /mm/i;
+      const tamCM = /cm/i;
+      for (const it of itemsToSum) {
+        const tam = it.tamanho || '';
+        const qtd = it.qtd_aberta || 0;
+        if (tamMM.test(tam)) totalMetros += qtd;
+        if (tamCM.test(tam)) totalPares += qtd;
+      }
+      let html = '';
+      html += `<div>Total (MM): <span class="font-bold text-blue-700">${fmtDecimal(totalMetros)}</span> metros</div>`;
+      html += `<div>Total (CM): <span class="font-bold text-blue-700">${fmtInt(totalPares)}</span> pares</div>`;
+      $aggregates.innerHTML = html;
+    }
+
+    // ==== LÓGICA DE FILTRAGEM (MODIFICADO) ====
+    function applyFilters() {
+      const qCliente = state.searchCliente;
+      const qOC = state.searchOC;
+      const qDescricao = state.searchDescricao;
+      const qGeralTokens = state.searchGeral ? state.searchGeral.split(' ').filter(Boolean) : [];
+      const qDataProg = state.searchDataProg;
+
+      FILTERED_ITEMS = ALL_ITEMS.filter(it => {
+        if (qCliente && !it._norm_cliente.includes(qCliente)) return false;
+        if (qOC && !it._norm_oc.includes(qOC)) return false;
+        if (qDescricao && !it._norm_descricao.includes(qDescricao)) return false;
+        if (qGeralTokens.length) {
+          if (!qGeralTokens.every(t => it._norm_geral.indexOf(t) >= 0)) return false;
+        }
+        if (qDataProg && it.dt_entrega_sortable !== qDataProg) return false;
+        return true; 
+      });
+      
+      resetList();
+      renderPage();
+      updateAggregates(FILTERED_ITEMS);
+    }
+
+    // ==== FUNÇÃO DE CARREGAMENTO DE DADOS (COM CACHE BUSTING) ====
+    function loadData() {
+      $loadingOverlay.classList.remove('hidden');
+      $loadingText.textContent = 'Buscando dados atualizados...';
+      $loadingText.classList.remove('text-red-600');
+      $loadingText.classList.add('text-gray-700');
+      document.querySelector('#loading-overlay .spinner').classList.remove('hidden');
+
+      const cacheBuster = new Date().getTime();
+      console.log('Carregando dados com cache buster:', cacheBuster);
+      
+      google.script.run
+        .withSuccessHandler(onDataLoaded)
+        .withFailureHandler(onDataError)
+        .fetchAllData(cacheBuster);
+    }
+
+    // ==== INICIALIZAÇÃO ====
+    function setupFilterListener(element, stateKey) {
+      element.addEventListener('input', debounce(() => {
+          state[stateKey] = _normSearch_(element.value);
+          applyFilters();
+      }, 350));
+    }
+
+    function onDataLoaded(res) {
+      if (!res || !res.ok) {
+        onDataError(res || { error: 'Resposta inválida do servidor.' });
+        return;
+      }
+      
+      appMeta = res.meta || {};
+      
+      console.time('Pre-processing items');
+      $loadingText.textContent = `Processando ${res.items.length} itens...`;
+      ALL_ITEMS = res.items.map(it => {
+        it._norm_cliente = _normSearch_(it.cliente);
+        
+        // --- CORREÇÃO DE ERRO ---
+        it._norm_oc = _normSearch_(it.ord_compra); // Removido 'MODIFIED, {' ... '}'
+        // --- FIM DA CORREÇÃO ---
+
+        it._norm_descricao = _normSearch_(it.descricao);
+        it._norm_geral = _normSearch_(it.cartela + ' ' + it.tamanho);
+        return it;
+      });
+      console.timeEnd('Pre-processing items');
+      FILTERED_ITEMS = ALL_ITEMS; 
+
+      if (appMeta.access_count_today) {
+        const count = appMeta.access_count_today;
+        $accessCounter.textContent = `${count} ${count > 1 ? 'acessos' : 'acesso'} hoje`;
+      } else {
+        $accessCounter.textContent = '';
+      }
+
+      if (appMeta.updated_at_display) {
+        $updatedAt.textContent = appMeta.updated_at_display;
+      } else {
+        $updatedAt.textContent = 'Data não informada.';
+      }
+      if (appMeta.request_timestamp) {
+        $requestTimestamp.textContent = `Requisição: ${appMeta.request_timestamp}`;
+      }
+      $metaLine.textContent = `Autor: ${appMeta?.author || 'Johnny'} • v${appMeta.version || '?'}`;
+      
+      resetList();
+      renderPage();
+      updateAggregates(FILTERED_ITEMS);
+      $loadingOverlay.classList.add('hidden');
+      
+      // Configurar listeners apenas na primeira carga
+      if (!$searchCliente.dataset.initialized) {
+        setupFilterListener($searchCliente, 'searchCliente');
+        setupFilterListener($searchOC, 'searchOC');
+        setupFilterListener($searchDescricao, 'searchDescricao');
+        setupFilterListener($searchGeral, 'searchGeral');
+
+        $searchDataProg.addEventListener('input', debounce(() => {
+            state['searchDataProg'] = $searchDataProg.value;
+            applyFilters();
+        }, 350));
+
+        $searchCliente.dataset.initialized = 'true';
+
+        $btnMore.addEventListener('click', renderPage);
+        
+        const io = new IntersectionObserver((entries) => {
+          entries.forEach(e => { if (e.isIntersecting) renderPage(); });
+        }, { rootMargin: '400px' });
+        io.observe($btnMore);
+      }
+    }
+
+    function onDataError(err) {
+      console.error('Falha ao carregar dados:', err);
+      $loadingText.textContent = `Erro ao carregar dados: ${err && err.message ? err.message : (err.error || 'Erro desconhecido')}`;
+      $loadingText.classList.remove('text-gray-700');
+      $loadingText.classList.add('text-red-600');
+      document.querySelector('#loading-overlay .spinner').classList.add('hidden');
+    }
+
+    // ==== BOTÃO DE ATUALIZAÇÃO ====
+    $refreshButton.addEventListener('click', () => {
+      console.log('Botão de atualização clicado');
+      loadData();
+    });
+
+    // ==== PWA: INSTALAÇÃO DO APP ====
+    window.addEventListener('beforeinstallprompt', (e) => {
+      console.log('Evento beforeinstallprompt capturado');
+      e.preventDefault();
+      deferredPrompt = e;
+      show($installButton, true);
+    });
+
+    $installButton.addEventListener('click', async () => {
+      if (!deferredPrompt) {
+        console.log('deferredPrompt não disponível');
+        return;
+      }
+      
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      console.log(`Usuário ${outcome === 'accepted' ? 'aceitou' : 'recusou'} a instalação`);
+      
+      deferredPrompt = null;
+      show($installButton, false);
+    });
+
+    window.addEventListener('appinstalled', () => {
+      console.log('PWA instalado com sucesso');
+      deferredPrompt = null;
+      show($installButton, false);
+    });
+
+    // ==== INICIALIZAÇÃO AUTOMÁTICA ====
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log('Iniciando carregamento...');
+      loadData();
+    });
+  </script>
+</body>
+</html>
