@@ -31,6 +31,12 @@ function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('🏭 Relatórios')
       .addItem('🖨️ Imprimir Relatório por OC(s)', 'mostrarDialogoOCs')
+      .addSeparator()
+      .addItem('📊 Gerar Total de Pares por Semana', 'gerarRelatorioParesPorSemana')
+      .addSeparator()
+      .addItem('⏰ Criar Acionador Diário (6h)', 'criarAcionadorDiario')
+      .addItem('🗑️ Remover Acionador Diário', 'removerAcionadorDiarioComAviso')
+      .addItem('🔄 Zerar Cache de Pedidos', 'zerarCachePedidos')
       .addToUi();
 }
 
@@ -1232,5 +1238,442 @@ function _getAccessCount_() {
     if (lock) {
       lock.releaseLock();
     }
+  }
+}
+
+/****************************************************
+ * RELATÓRIO SEMANAL DE PARES E PRODUÇÃO
+ * Autor: Johnny
+ *
+ * Funcionalidades:
+ *  1. Total de Pedidos por Semana  (aba "ESPELHO PARA CONSULTA")
+ *  2. Produção Realizada por Semana (planilha externa de produção)
+ *  3. Geração de tabela semanal na aba "TOTAL DE PARES POR SEMANA"
+ *  4. Acionadores automáticos diários
+ ****************************************************/
+
+// ID da planilha externa de produção
+var ID_PLANILHA_PRODUCAO = '1hHNYK2FqQuZhzePrd7F6aDMOpb2NTlMumCWs95kGjB8';
+
+// Chave do cache para totais de pedidos por semana (JSON: { "YYYY-MM-DD": maxTotal })
+var CHAVE_CACHE_PEDIDOS = 'cache_pedidos';
+
+// ====== HELPERS DE DATA ======
+
+/**
+ * Retorna a Date da segunda-feira da semana da data informada.
+ * @param {Date} data
+ * @returns {Date}
+ */
+function getSegundaDaSemana(data) {
+  var d = new Date(data);
+  d.setHours(0, 0, 0, 0);
+  var diaSemana = d.getDay(); // 0=Dom, 1=Seg, ..., 6=Sab
+  var diff = (diaSemana === 0) ? -6 : 1 - diaSemana;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+/**
+ * Formata um objeto Date como "YYYY-MM-DD".
+ * @param {Date} d
+ * @returns {string}
+ */
+function formatarData(d) {
+  var ano = d.getFullYear();
+  var mes = String(d.getMonth() + 1).padStart(2, '0');
+  var dia = String(d.getDate()).padStart(2, '0');
+  return ano + '-' + mes + '-' + dia;
+}
+
+/**
+ * Formata um objeto Date como "DD/MM/AAAA".
+ * @param {Date} d
+ * @returns {string}
+ */
+function formatarDataBR(d) {
+  var dia = String(d.getDate()).padStart(2, '0');
+  var mes = String(d.getMonth() + 1).padStart(2, '0');
+  var ano = d.getFullYear();
+  return dia + '/' + mes + '/' + ano;
+}
+
+/**
+ * Converte um valor de data (objeto Date ou string "DD/MM/AAAA") para Date.
+ * Retorna null se inválido.
+ * @param {*} valor
+ * @returns {Date|null}
+ */
+function _parseDataSemanal_(valor) {
+  if (!valor) return null;
+  if (valor instanceof Date) {
+    return isNaN(valor.getTime()) ? null : valor;
+  }
+  var str = String(valor).trim();
+  var match = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (match) {
+    var d = new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+// ====== PRODUÇÃO REALIZADA POR SEMANA ======
+
+// Mapa de nomes de meses em português para índice (0-based)
+var MESES_PT_IDX = {
+  'JANEIRO': 0, 'FEVEREIRO': 1, 'MARCO': 2, 'MARÇO': 2,
+  'ABRIL': 3, 'MAIO': 4, 'JUNHO': 5,
+  'JULHO': 6, 'AGOSTO': 7, 'SETEMBRO': 8,
+  'OUTUBRO': 9, 'NOVEMBRO': 10, 'DEZEMBRO': 11
+};
+
+/**
+ * Lê a planilha de produção externa e agrupa totais por semana.
+ * Varre todas as abas no padrão "MÊS ANO" (ex: "ABRIL 2026").
+ * Coluna A (a partir da linha 3): dia do mês.
+ * Coluna R (a partir da linha 3): total produzido no dia.
+ * @returns {Object} { "YYYY-MM-DD": totalDaSemana }
+ */
+function lerProducaoRealizadaPorSemana() {
+  var resultado = {};
+
+  try {
+    var ss = SpreadsheetApp.openById(ID_PLANILHA_PRODUCAO);
+    var abas = ss.getSheets();
+
+    abas.forEach(function(aba) {
+      var nomeAba = aba.getName().trim().toUpperCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // remove acentos para comparação
+
+      var partes = nomeAba.split(/\s+/);
+      if (partes.length !== 2) return;
+
+      var nomeMes = partes[0];
+      var anoStr  = partes[1];
+
+      var mesBd = MESES_PT_IDX[nomeMes];
+      if (mesBd === undefined) return;
+
+      var ano = parseInt(anoStr);
+      if (isNaN(ano) || ano < 2020 || ano > 2100) return;
+
+      var ultimaLinha = aba.getLastRow();
+      if (ultimaLinha < 3) return;
+
+      var numLinhas = ultimaLinha - 2;
+      // Colunas A (índice 0) a R (índice 17) = 18 colunas
+      var dados = aba.getRange(3, 1, numLinhas, 18).getValues();
+
+      dados.forEach(function(linha) {
+        var valorDia   = linha[0];   // Coluna A
+        var valorTotal = linha[17];  // Coluna R
+
+        var dia;
+        if (valorDia instanceof Date && !isNaN(valorDia.getTime())) {
+          dia = valorDia.getDate();
+        } else {
+          dia = parseInt(valorDia);
+        }
+        if (isNaN(dia) || dia < 1 || dia > 31) return;
+
+        var total = parseFloat(valorTotal);
+        if (isNaN(total) || total <= 0) return;
+
+        var dataCompleta = new Date(ano, mesBd, dia);
+        if (isNaN(dataCompleta.getTime())) return;
+
+        var segunda = getSegundaDaSemana(dataCompleta);
+        var chave   = formatarData(segunda);
+
+        resultado[chave] = (resultado[chave] || 0) + total;
+      });
+    });
+
+  } catch (e) {
+    Logger.log('Erro ao ler produção realizada: ' + e.message);
+  }
+
+  return resultado;
+}
+
+// ====== PEDIDOS POR SEMANA ======
+
+/**
+ * Lê pedidos da aba "ESPELHO PARA CONSULTA" e agrupa por semana.
+ * - Coluna A: Nome do cliente
+ * - Coluna D: Tipo do produto (apenas os que contêm "CM")
+ * - Coluna E: Quantidade de pares
+ * - Coluna G: Data do pedido
+ * Dados começam na linha 2.
+ * @returns {Object} { "YYYY-MM-DD": { nomeCliente: totalPares } }
+ */
+function lerPedidosPorSemana() {
+  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var aba = ss.getSheetByName('ESPELHO PARA CONSULTA');
+
+  if (!aba) {
+    throw new Error('Aba "ESPELHO PARA CONSULTA" não encontrada na planilha ativa.');
+  }
+
+  var ultimaLinha = aba.getLastRow();
+  if (ultimaLinha < 2) return {};
+
+  var numLinhas = ultimaLinha - 1;
+  var dados = aba.getRange(2, 1, numLinhas, 7).getValues(); // Colunas A–G
+
+  var resultado = {};
+
+  dados.forEach(function(linha) {
+    var cliente     = String(linha[0] || '').trim();       // Coluna A
+    var tipoProduto = String(linha[3] || '').trim();       // Coluna D
+    var qtdValor    = linha[4];                            // Coluna E
+    var dataValor   = linha[6];                            // Coluna G
+
+    if (!cliente) return;
+    if (tipoProduto.toUpperCase().indexOf('CM') === -1) return;
+
+    var quantidade = parseFloat(qtdValor);
+    if (isNaN(quantidade) || quantidade <= 0) return;
+
+    var data = _parseDataSemanal_(dataValor);
+    if (!data) return;
+
+    var segunda = getSegundaDaSemana(data);
+    var chave   = formatarData(segunda);
+
+    if (!resultado[chave]) resultado[chave] = {};
+    resultado[chave][cliente] = (resultado[chave][cliente] || 0) + quantidade;
+  });
+
+  return resultado;
+}
+
+// ====== GERAÇÃO DO RELATÓRIO ======
+
+/**
+ * Gera o relatório de pares por semana na aba "TOTAL DE PARES POR SEMANA".
+ * Pode ser chamada manualmente (com alertas) ou pelo acionador (silencioso).
+ * @param {boolean} [silencioso=false]
+ */
+function gerarRelatorioParesPorSemana(silencioso) {
+  silencioso = silencioso || false;
+
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // 1. Ler pedidos e produção
+    var pedidosPorSemana  = lerPedidosPorSemana();
+    var producaoPorSemana = lerProducaoRealizadaPorSemana();
+
+    // 2. Recuperar cache de totais máximos por semana
+    var props = PropertiesService.getScriptProperties();
+    var cacheStr = props.getProperty(CHAVE_CACHE_PEDIDOS);
+    var cacheMaximos = cacheStr ? JSON.parse(cacheStr) : {};
+
+    // 3. Atualizar o cache: o total de cada semana nunca diminui
+    Object.keys(pedidosPorSemana).forEach(function(chaveSemana) {
+      var totalSemanaAtual = 0;
+      var clientes = pedidosPorSemana[chaveSemana];
+      Object.keys(clientes).forEach(function(c) { totalSemanaAtual += clientes[c]; });
+
+      var maxAnterior = parseFloat(cacheMaximos[chaveSemana] || '0');
+      cacheMaximos[chaveSemana] = Math.max(totalSemanaAtual, maxAnterior);
+    });
+    props.setProperty(CHAVE_CACHE_PEDIDOS, JSON.stringify(cacheMaximos));
+
+    // 4. Obter/criar aba de saída
+    var nomeAbaSaida = 'TOTAL DE PARES POR SEMANA';
+    var abaDestino   = ss.getSheetByName(nomeAbaSaida);
+    if (!abaDestino) {
+      abaDestino = ss.insertSheet(nomeAbaSaida);
+    } else {
+      abaDestino.clearContents();
+      abaDestino.clearFormats();
+    }
+
+    // 5. Ordenar semanas cronologicamente
+    var semanas = Object.keys(pedidosPorSemana).sort();
+    var linhaAtual = 1;
+
+    semanas.forEach(function(chaveSemana) {
+      // Calcular intervalo da semana (segunda a domingo)
+      var segunda = new Date(chaveSemana + 'T12:00:00'); // meio-dia evita problema de DST
+      var domingo = new Date(segunda);
+      domingo.setDate(domingo.getDate() + 6);
+
+      var cabecalhoSemana = 'Semana: ' + formatarDataBR(segunda) + ' a ' + formatarDataBR(domingo);
+
+      var clientes          = pedidosPorSemana[chaveSemana];
+      var clientesOrdenados = Object.keys(clientes).sort();
+
+      var totalPedidosMaximo = cacheMaximos[chaveSemana] || 0;
+      var producaoSemana     = producaoPorSemana[chaveSemana] || 0;
+      var saldo              = producaoSemana - totalPedidosMaximo;
+
+      // ── Cabeçalho da semana ──
+      var rangeCab = abaDestino.getRange(linhaAtual, 1, 1, 2);
+      rangeCab.merge()
+        .setValue(cabecalhoSemana)
+        .setBackground('#1a237e')
+        .setFontColor('#ffffff')
+        .setFontWeight('bold')
+        .setFontSize(20)
+        .setHorizontalAlignment('center')
+        .setVerticalAlignment('middle');
+      linhaAtual++;
+
+      // ── Linhas de clientes ──
+      clientesOrdenados.forEach(function(cliente) {
+        abaDestino.getRange(linhaAtual, 1)
+          .setValue(cliente)
+          .setFontSize(20);
+        abaDestino.getRange(linhaAtual, 2)
+          .setValue(clientes[cliente])
+          .setFontSize(20)
+          .setHorizontalAlignment('right');
+        linhaAtual++;
+      });
+
+      // ── TOTAL DE PEDIDOS ──
+      var rangeTotalPed = abaDestino.getRange(linhaAtual, 1, 1, 2);
+      rangeTotalPed.setBackground('#e8eaf6');
+      abaDestino.getRange(linhaAtual, 1)
+        .setValue('TOTAL DE PEDIDOS')
+        .setFontSize(20).setFontWeight('bold');
+      abaDestino.getRange(linhaAtual, 2)
+        .setValue(totalPedidosMaximo)
+        .setFontSize(20).setFontWeight('bold')
+        .setHorizontalAlignment('right');
+      linhaAtual++;
+
+      // ── PRODUÇÃO REALIZADA ──
+      var rangeProducao = abaDestino.getRange(linhaAtual, 1, 1, 2);
+      rangeProducao.setBackground('#e8f5e9');
+      abaDestino.getRange(linhaAtual, 1)
+        .setValue('PRODUÇÃO REALIZADA')
+        .setFontSize(20).setFontWeight('bold');
+      abaDestino.getRange(linhaAtual, 2)
+        .setValue(producaoSemana)
+        .setFontSize(20).setFontWeight('bold')
+        .setHorizontalAlignment('right');
+      linhaAtual++;
+
+      // ── SALDO ──
+      var corSaldo  = saldo >= 0 ? '#c8e6c9' : '#ffcdd2';
+      var rangeSaldo = abaDestino.getRange(linhaAtual, 1, 1, 2);
+      rangeSaldo.setBackground(corSaldo);
+      abaDestino.getRange(linhaAtual, 1)
+        .setValue('SALDO')
+        .setFontSize(20).setFontWeight('bold');
+      abaDestino.getRange(linhaAtual, 2)
+        .setValue(saldo)
+        .setFontSize(20).setFontWeight('bold')
+        .setHorizontalAlignment('right');
+      linhaAtual++;
+
+      // ── Linha em branco entre semanas ──
+      linhaAtual++;
+    });
+
+    // 6. Ajustar largura das colunas
+    abaDestino.setColumnWidth(1, 360);
+    abaDestino.setColumnWidth(2, 200);
+
+    Logger.log('Relatório de pares por semana gerado com sucesso.');
+
+    if (!silencioso) {
+      SpreadsheetApp.getUi().alert(
+        '✅ Relatório gerado com sucesso na aba "' + nomeAbaSaida + '"!'
+      );
+    }
+
+  } catch (e) {
+    Logger.log('Erro em gerarRelatorioParesPorSemana: ' + e.message);
+    if (!silencioso) {
+      SpreadsheetApp.getUi().alert('❌ Erro ao gerar relatório: ' + e.message);
+    }
+  }
+}
+
+// Wrapper usado pelo acionador automático (sem alertas)
+function gerarRelatorioParesPorSemanaSilencioso() {
+  gerarRelatorioParesPorSemana(true);
+}
+
+// ====== ACIONADORES AUTOMÁTICOS ======
+
+/**
+ * Cria acionador diário às 6h (fuso America/Fortaleza).
+ * Remove duplicatas antes de criar.
+ */
+function criarAcionadorDiario() {
+  removerAcionadorDiario();
+
+  ScriptApp.newTrigger('gerarRelatorioParesPorSemanaSilencioso')
+    .timeBased()
+    .atHour(6)
+    .everyDays(1)
+    .inTimezone('America/Fortaleza')
+    .create();
+
+  SpreadsheetApp.getUi().alert(
+    '✅ Acionador criado! O relatório será gerado automaticamente às 6h (horário de Fortaleza).'
+  );
+}
+
+/**
+ * Remove todos os acionadores da função de relatório semanal (sem aviso).
+ */
+function removerAcionadorDiario() {
+  var triggers  = ScriptApp.getProjectTriggers();
+  var removidos = 0;
+
+  triggers.forEach(function(trigger) {
+    if (trigger.getHandlerFunction() === 'gerarRelatorioParesPorSemanaSilencioso') {
+      ScriptApp.deleteTrigger(trigger);
+      removidos++;
+    }
+  });
+
+  if (removidos > 0) {
+    Logger.log('Removidos ' + removidos + ' acionador(es) do relatório semanal.');
+  }
+}
+
+/**
+ * Remove o acionador diário exibindo confirmação ao usuário.
+ */
+function removerAcionadorDiarioComAviso() {
+  var ui   = SpreadsheetApp.getUi();
+  var resp = ui.alert(
+    'Remover Acionador',
+    'Deseja remover o acionador automático diário do relatório semanal?',
+    ui.ButtonSet.YES_NO
+  );
+
+  if (resp === ui.Button.YES) {
+    removerAcionadorDiario();
+    ui.alert('✅ Acionador removido com sucesso.');
+  }
+}
+
+/**
+ * Zera o cache de máximos do total de pedidos (com confirmação).
+ */
+function zerarCachePedidos() {
+  var ui   = SpreadsheetApp.getUi();
+  var resp = ui.alert(
+    '⚠️ Zerar Cache de Pedidos',
+    'Isso apagará o histórico de máximos de pedidos por semana.\n' +
+    'Os totais poderão diminuir na próxima execução caso dados tenham sido removidos.\n\n' +
+    'Tem certeza?',
+    ui.ButtonSet.YES_NO
+  );
+
+  if (resp === ui.Button.YES) {
+    PropertiesService.getScriptProperties().deleteProperty(CHAVE_CACHE_PEDIDOS);
+    ui.alert('✅ Cache de pedidos zerado com sucesso.');
+    Logger.log('Cache de pedidos zerado pelo usuário.');
   }
 }
